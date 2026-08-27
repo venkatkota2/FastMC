@@ -34,10 +34,16 @@ PYBIND11_MODULE(_fastmc, module) {
         .def_readonly("standard_error", &fastmc::PriceResult::standard_error)
         .def_readonly("confidence_low", &fastmc::PriceResult::confidence_low)
         .def_readonly("confidence_high", &fastmc::PriceResult::confidence_high)
-        .def_readonly("paths", &fastmc::PriceResult::paths);
+        .def_readonly("paths", &fastmc::PriceResult::paths)
+        .def_readonly("effective_samples", &fastmc::PriceResult::effective_samples);
+
+    py::class_<fastmc::Greeks>(module, "Greeks")
+        .def_readonly("delta", &fastmc::Greeks::delta)
+        .def_readonly("gamma", &fastmc::Greeks::gamma)
+        .def_readonly("vega", &fastmc::Greeks::vega);
 
     module.def("price_european", &fastmc::price_european);
     module.def("price_asian_arithmetic", &fastmc::price_asian_arithmetic);
+    module.def("estimate_greeks", &fastmc::estimate_greeks);
     module.def("black_scholes_price", &fastmc::black_scholes_price);
 }
-
