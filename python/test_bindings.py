@@ -29,3 +29,12 @@ assert result.effective_samples == 50_000
 assert abs(result.price - analytic) < 5.0 * result.standard_error
 assert result.confidence_low < result.price < result.confidence_high
 assert math.isfinite(greeks.delta) and math.isfinite(greeks.gamma) and math.isfinite(greeks.vega)
+
+try:
+    _fastmc.black_scholes_price(
+        _fastmc.Option(100.0, 100.0, 0.0, _fastmc.OptionType.Call), market
+    )
+except ValueError:
+    pass
+else:
+    raise AssertionError("analytical binding accepted an invalid option")

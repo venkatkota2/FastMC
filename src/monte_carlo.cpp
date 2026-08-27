@@ -59,7 +59,7 @@ struct Accumulator {
     }
 };
 
-void validate(const Option& option, const Market& market, const Simulation& simulation) {
+void validate_option_market(const Option& option, const Market& market) {
     if (!std::isfinite(option.spot) || !std::isfinite(option.strike)
         || !std::isfinite(option.maturity) || !std::isfinite(market.rate)
         || !std::isfinite(market.volatility) || !std::isfinite(market.dividend_yield)) {
@@ -68,8 +68,15 @@ void validate(const Option& option, const Market& market, const Simulation& simu
     if (option.spot <= 0.0 || option.strike <= 0.0 || option.maturity <= 0.0) {
         throw std::invalid_argument("spot, strike, and maturity must be positive");
     }
-    if (market.volatility < 0.0 || simulation.time_steps == 0) {
-        throw std::invalid_argument("invalid market or simulation parameters");
+    if (market.volatility < 0.0) {
+        throw std::invalid_argument("volatility must be non-negative");
+    }
+}
+
+void validate(const Option& option, const Market& market, const Simulation& simulation) {
+    validate_option_market(option, market);
+    if (simulation.time_steps == 0) {
+        throw std::invalid_argument("time_steps must be positive");
     }
     if (simulation.antithetic) {
         if (simulation.paths < 4 || simulation.paths % 2 != 0) {
@@ -139,8 +146,9 @@ PriceResult simulate(
     if (thread_count == 0) {
         thread_count = std::max(1U, std::thread::hardware_concurrency());
     }
-    thread_count =
-        std::min<unsigned int>(thread_count, static_cast<unsigned int>(independent_samples));
+    thread_count = static_cast<unsigned int>(
+        std::min<std::size_t>(thread_count, independent_samples)
+    );
 
     std::vector<Accumulator> partials(thread_count);
     std::vector<std::thread> workers;
@@ -196,6 +204,9 @@ PriceResult simulate(
     const double price = discount * static_cast<double>(mean);
     const double standard_error =
         discount * std::sqrt(static_cast<double>(variance) / static_cast<double>(total.count));
+    if (!std::isfinite(price) || !std::isfinite(standard_error)) {
+        throw std::overflow_error("simulation produced a non-finite result");
+    }
     constexpr double z95 = 1.959963984540054;
     return {
         price,
@@ -234,9 +245,10 @@ Greeks estimate_greeks(
     const Market& market,
     const Simulation& simulation
 ) {
+    validate(option, market, simulation);
     // Every bumped valuation receives identical Simulation settings. The
     // deterministic streams therefore implement common random numbers.
-    const double spot_bump = std::max(0.01, option.spot * 0.01);
+    const double spot_bump = std::min(option.spot * 0.5, std::max(1e-6, option.spot * 0.01));
     const double volatility_bump = 0.001;
     Option down = option;
     Option up = option;
@@ -258,6 +270,7 @@ Greeks estimate_greeks(
 }
 
 double black_scholes_price(const Option& option, const Market& market) {
+    validate_option_market(option, market);
     if (market.volatility == 0.0) {
         const double forward_spot =
             option.spot * std::exp((market.rate - market.dividend_yield) * option.maturity);

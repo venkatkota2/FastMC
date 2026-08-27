@@ -42,8 +42,24 @@ PYBIND11_MODULE(_fastmc, module) {
         .def_readonly("gamma", &fastmc::Greeks::gamma)
         .def_readonly("vega", &fastmc::Greeks::vega);
 
-    module.def("price_european", &fastmc::price_european);
-    module.def("price_asian_arithmetic", &fastmc::price_asian_arithmetic);
-    module.def("estimate_greeks", &fastmc::estimate_greeks);
-    module.def("black_scholes_price", &fastmc::black_scholes_price);
+    module.def(
+        "price_european",
+        &fastmc::price_european,
+        py::call_guard<py::gil_scoped_release>()
+    );
+    module.def(
+        "price_asian_arithmetic",
+        &fastmc::price_asian_arithmetic,
+        py::call_guard<py::gil_scoped_release>()
+    );
+    module.def(
+        "estimate_greeks",
+        &fastmc::estimate_greeks,
+        py::call_guard<py::gil_scoped_release>()
+    );
+    module.def(
+        "black_scholes_price",
+        &fastmc::black_scholes_price,
+        py::call_guard<py::gil_scoped_release>()
+    );
 }

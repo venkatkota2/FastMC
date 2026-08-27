@@ -1,5 +1,7 @@
 # FastMC
 
+[![CI](https://github.com/venkatkota2/FastMC/actions/workflows/ci.yml/badge.svg)](https://github.com/venkatkota2/FastMC/actions/workflows/ci.yml)
+
 A performance-oriented Monte Carlo engine for derivatives pricing, written in modern C++ with an optional Python binding.
 
 FastMC is designed to show the engineering underneath numerical finance libraries: deterministic random streams, antithetic sampling, parallel path evaluation, uncertainty estimates, and common-random-number Greeks. It is intentionally focused enough that every numerical choice is inspectable.
@@ -17,8 +19,8 @@ FastMC is designed to show the engineering underneath numerical finance librarie
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
-ctest --test-dir build --output-on-failure
+cmake --build build --config Release --parallel
+ctest --test-dir build --build-config Release --output-on-failure
 ./build/fastmc-cli --paths 1000000 --threads 4
 ```
 
@@ -56,8 +58,8 @@ count of at least four.
 python -m pip install pybind11
 cmake -S . -B build-python -DFASTMC_BUILD_PYTHON=ON \
   -Dpybind11_DIR="$(python -m pybind11 --cmakedir)"
-cmake --build build-python --parallel
-ctest --test-dir build-python --output-on-failure
+cmake --build build-python --config Release --parallel
+ctest --test-dir build-python --build-config Release --output-on-failure
 ```
 
 The binding exposes options, markets, simulation settings, prices, uncertainty
@@ -65,7 +67,15 @@ metadata, `Greeks`, and `estimate_greeks`.
 
 ## Performance model
 
-Work is partitioned across independent seeded streams. Each worker accumulates independent path or antithetic-pair estimates locally, avoiding synchronization in the simulation loop. Results are reduced once per worker. The core owns no global state, so pricing calls can safely run concurrently.
+Work is partitioned across independent seeded streams. Each worker accumulates independent path or antithetic-pair estimates locally, avoiding synchronization in the simulation loop. Results are reduced once per worker. The core owns no global state, so C++ pricing calls can safely run concurrently. The Python functions release the GIL during pricing and Greek estimation.
+
+## Validation evidence
+
+The release-mode C++ test executable uses explicit runtime checks (not
+`assert`, which would be disabled by `NDEBUG`). It reconciles European prices
+to Black–Scholes, checks put-call parity, validates common-random-number
+Greeks, exercises Asian pricing, and verifies rejected inputs. CI builds and
+executes the C++ core and Python binding on Linux, macOS, and Windows.
 
 ## Reproducible benchmarking
 
