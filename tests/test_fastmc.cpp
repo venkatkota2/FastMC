@@ -1,10 +1,21 @@
 #include <fastmc/monte_carlo.hpp>
 
-#include <cassert>
 #include <cmath>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <string>
+#include <string_view>
+
+namespace {
+
+void require(bool condition, std::string_view message) {
+    if (!condition) {
+        throw std::runtime_error(std::string(message));
+    }
+}
+
+}  // namespace
 
 int main() {
     const fastmc::Option call{100.0, 100.0, 1.0, fastmc::OptionType::Call};
@@ -16,15 +27,18 @@ int main() {
     const auto put_result = fastmc::price_european(put, market, simulation);
     const double analytic = fastmc::black_scholes_price(call, market);
 
-    assert(call_result.paths == simulation.paths);
-    assert(call_result.effective_samples == simulation.paths / 2);
-    assert(std::abs(call_result.price - analytic) < 4.0 * call_result.standard_error);
-    assert(call_result.confidence_low < call_result.price);
-    assert(call_result.price < call_result.confidence_high);
+    require(call_result.paths == simulation.paths, "raw path count mismatch");
+    require(call_result.effective_samples == simulation.paths / 2, "pair count mismatch");
+    require(
+        std::abs(call_result.price - analytic) < 4.0 * call_result.standard_error,
+        "Monte Carlo price does not reconcile to Black-Scholes"
+    );
+    require(call_result.confidence_low < call_result.price, "invalid lower confidence bound");
+    require(call_result.price < call_result.confidence_high, "invalid upper confidence bound");
 
     const double parity = call_result.price - put_result.price;
     const double expected_parity = call.spot - call.strike * std::exp(-market.rate * call.maturity);
-    assert(std::abs(parity - expected_parity) < 0.15);
+    require(std::abs(parity - expected_parity) < 0.15, "put-call parity regression");
 
     const auto greeks = fastmc::estimate_greeks(call, market, simulation);
     const double d1 =
@@ -36,13 +50,13 @@ int main() {
     const double analytic_gamma =
         density / (call.spot * market.volatility * std::sqrt(call.maturity));
     const double analytic_vega = call.spot * density * std::sqrt(call.maturity);
-    assert(std::abs(greeks.delta - analytic_delta) < 0.02);
-    assert(std::abs(greeks.gamma - analytic_gamma) < 0.005);
-    assert(std::abs(greeks.vega - analytic_vega) < 2.0);
+    require(std::abs(greeks.delta - analytic_delta) < 0.02, "delta regression");
+    require(std::abs(greeks.gamma - analytic_gamma) < 0.005, "gamma regression");
+    require(std::abs(greeks.vega - analytic_vega) < 2.0, "vega regression");
 
     const auto asian = fastmc::price_asian_arithmetic(call, market, simulation);
-    assert(asian.price > 0.0);
-    assert(asian.price < call_result.price);
+    require(asian.price > 0.0, "Asian price must be positive");
+    require(asian.price < call_result.price, "Asian price regression");
 
     bool rejected = false;
     try {
@@ -51,7 +65,7 @@ int main() {
     } catch (const std::invalid_argument&) {
         rejected = true;
     }
-    assert(rejected);
+    require(rejected, "zero spot was not rejected");
 
     rejected = false;
     try {
@@ -61,7 +75,7 @@ int main() {
     } catch (const std::invalid_argument&) {
         rejected = true;
     }
-    assert(rejected);
+    require(rejected, "odd antithetic path count was not rejected");
 
     rejected = false;
     try {
@@ -71,11 +85,24 @@ int main() {
     } catch (const std::invalid_argument&) {
         rejected = true;
     }
-    assert(rejected);
+    require(rejected, "non-finite market input was not rejected");
+
+    rejected = false;
+    try {
+        const fastmc::Option invalid{100.0, 100.0, 0.0, fastmc::OptionType::Call};
+        (void)fastmc::black_scholes_price(invalid, market);
+    } catch (const std::invalid_argument&) {
+        rejected = true;
+    }
+    require(rejected, "analytical pricer did not validate its public inputs");
+
+    const fastmc::Option small_spot{0.005, 0.005, 1.0, fastmc::OptionType::Call};
+    const auto small_spot_greeks = fastmc::estimate_greeks(small_spot, market, simulation);
+    require(std::isfinite(small_spot_greeks.delta), "small-spot delta is not finite");
 
     const auto repeated = fastmc::price_european(call, market, simulation);
-    assert(repeated.price == call_result.price);
-    assert(repeated.standard_error == call_result.standard_error);
+    require(repeated.price == call_result.price, "price is not reproducible");
+    require(repeated.standard_error == call_result.standard_error, "error is not reproducible");
 
     std::cout << "FastMC tests passed\n";
     return 0;
