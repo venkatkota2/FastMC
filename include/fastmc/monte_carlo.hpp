@@ -34,6 +34,7 @@ struct PriceResult {
     double confidence_low;
     double confidence_high;
     std::size_t paths;
+    std::size_t effective_samples;
 };
 
 struct Greeks {
@@ -52,4 +53,3 @@ Greeks estimate_greeks(const Option& option, const Market& market, const Simulat
 double black_scholes_price(const Option& option, const Market& market);
 
 }  // namespace fastmc
-

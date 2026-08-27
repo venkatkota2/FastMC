@@ -1,7 +1,7 @@
-build/
+/build*/
 .cache/
 __pycache__/
 *.so
 *.dylib
 *.dll
-
+*.pyd

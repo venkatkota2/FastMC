@@ -60,11 +60,25 @@ struct Accumulator {
 };
 
 void validate(const Option& option, const Market& market, const Simulation& simulation) {
+    if (!std::isfinite(option.spot) || !std::isfinite(option.strike)
+        || !std::isfinite(option.maturity) || !std::isfinite(market.rate)
+        || !std::isfinite(market.volatility) || !std::isfinite(market.dividend_yield)) {
+        throw std::invalid_argument("option and market inputs must be finite");
+    }
     if (option.spot <= 0.0 || option.strike <= 0.0 || option.maturity <= 0.0) {
         throw std::invalid_argument("spot, strike, and maturity must be positive");
     }
-    if (market.volatility < 0.0 || simulation.paths < 2 || simulation.time_steps == 0) {
+    if (market.volatility < 0.0 || simulation.time_steps == 0) {
         throw std::invalid_argument("invalid market or simulation parameters");
+    }
+    if (simulation.antithetic) {
+        if (simulation.paths < 4 || simulation.paths % 2 != 0) {
+            throw std::invalid_argument(
+                "antithetic simulation requires an even path count of at least four"
+            );
+        }
+    } else if (simulation.paths < 2) {
+        throw std::invalid_argument("simulation requires at least two paths");
     }
 }
 
@@ -119,17 +133,20 @@ PriceResult simulate(
     PathPayoff path_payoff
 ) {
     validate(option, market, simulation);
+    const std::size_t independent_samples =
+        simulation.antithetic ? simulation.paths / 2 : simulation.paths;
     unsigned int thread_count = simulation.threads;
     if (thread_count == 0) {
         thread_count = std::max(1U, std::thread::hardware_concurrency());
     }
-    thread_count = std::min<unsigned int>(thread_count, static_cast<unsigned int>(simulation.paths));
+    thread_count =
+        std::min<unsigned int>(thread_count, static_cast<unsigned int>(independent_samples));
 
     std::vector<Accumulator> partials(thread_count);
     std::vector<std::thread> workers;
     workers.reserve(thread_count);
-    const std::size_t base = simulation.paths / thread_count;
-    const std::size_t remainder = simulation.paths % thread_count;
+    const std::size_t base = independent_samples / thread_count;
+    const std::size_t remainder = independent_samples % thread_count;
 
     for (unsigned int worker = 0; worker < thread_count; ++worker) {
         const std::size_t count = base + (worker < remainder ? 1U : 0U);
@@ -137,23 +154,24 @@ PriceResult simulate(
             NormalGenerator generator(
                 simulation.seed + 0x9e3779b97f4a7c15ULL * static_cast<std::uint64_t>(worker + 1)
             );
-            std::size_t generated = 0;
-            while (generated < count) {
-                if (simulation.antithetic && generated + 1 < count) {
+            for (std::size_t sample = 0; sample < count; ++sample) {
+                if (simulation.antithetic) {
                     const auto snapshot = generator;
-                    partials[worker].add(
-                        path_payoff(option, market, simulation.time_steps, generator, 1.0)
-                    );
+                    const double positive =
+                        path_payoff(option, market, simulation.time_steps, generator, 1.0);
                     auto antithetic_generator = snapshot;
-                    partials[worker].add(
-                        path_payoff(option, market, simulation.time_steps, antithetic_generator, -1.0)
+                    const double negative = path_payoff(
+                        option,
+                        market,
+                        simulation.time_steps,
+                        antithetic_generator,
+                        -1.0
                     );
-                    generated += 2;
+                    partials[worker].add(0.5 * (positive + negative));
                 } else {
                     partials[worker].add(
                         path_payoff(option, market, simulation.time_steps, generator, 1.0)
                     );
-                    ++generated;
                 }
             }
         });
@@ -184,6 +202,7 @@ PriceResult simulate(
         standard_error,
         price - z95 * standard_error,
         price + z95 * standard_error,
+        simulation.paths,
         total.count,
     };
 }
@@ -215,8 +234,10 @@ Greeks estimate_greeks(
     const Market& market,
     const Simulation& simulation
 ) {
-    const double spot_bump = std::max(0.01, option.spot * 0.001);
-    const double volatility_bump = 0.0001;
+    // Every bumped valuation receives identical Simulation settings. The
+    // deterministic streams therefore implement common random numbers.
+    const double spot_bump = std::max(0.01, option.spot * 0.01);
+    const double volatility_bump = 0.001;
     Option down = option;
     Option up = option;
     down.spot -= spot_bump;
@@ -259,4 +280,3 @@ double black_scholes_price(const Option& option, const Market& market) {
 }
 
 }  // namespace fastmc
-
